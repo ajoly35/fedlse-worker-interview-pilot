@@ -10,11 +10,29 @@ input,select{font-size:16px;padding:8px;width:100%;box-sizing:border-box;border:
 .btn{font-size:16px;padding:10px 22px;border:0;border-radius:8px;background:#0969da;color:#fff;cursor:pointer;margin-top:18px}
 .muted{color:#59636e;font-size:14px}.banner{background:#ddf4ff;border-radius:8px;padding:10px 14px;font-size:14px}
 .err{color:#cf222e;font-size:14px;margin-top:8px}
+.opt{font-weight:400;margin:8px 0;display:flex;gap:10px;align-items:flex-start}.opt input{width:auto;margin-top:5px}
 #next{display:none}
 </style></head><body>
 <h1>AI and your work: pilot interview</h1>
 <div class="banner">This is a <strong>test version</strong> for the research team. Tester code: <strong id="tcode"></strong>. Topic: <strong id="ttopic"></strong>.
 The conversation is recorded and transcribed by ElevenLabs. <a href="#" id="restart">Start over</a></div>
+
+<!-- Step 0: tester setup (test site only; in Qualtrics the Randomizer assigns the topic) -->
+<div class="card" id="step0" style="display:none">
+<h2>Before you start (testers only)</h2>
+<p>In the real survey, each respondent is interviewed on <strong>one topic</strong>, drawn at random. Here you can pick the topic you want to test, or let it be drawn.</p>
+<label for="who">Your initials</label><input id="who" autocomplete="off" maxlength="12" placeholder="e.g. AB">
+<label>Topic</label>
+<div id="topics">
+<label class="opt"><input type="radio" name="topic" value="random" checked> Random, as in the real survey</label>
+<label class="opt"><input type="radio" name="topic" value="adoption"> Adoption: how AI came into your work, or why it did not</label>
+<label class="opt"><input type="radio" name="topic" value="tasks"> Tasks: what AI does in your work</label>
+<label class="opt"><input type="radio" name="topic" value="job_quality"> Job quality: how your experience of the job has changed</label>
+<label class="opt"><input type="radio" name="topic" value="management"> Management and co-workers: how teamwork and management have changed</label>
+</div>
+<div class="err" id="err0"></div>
+<button class="btn" id="go0">Next</button>
+</div>
 
 <!-- Step 1: questionnaire (mirrors the Qualtrics items) -->
 <div class="card" id="step1" style="display:none">
@@ -78,15 +96,35 @@ document.querySelectorAll(".tc").forEach(function (e) { e.textContent = tester; 
 var FIELDS = ["occupation", "industry", "employer_genai", "ai_use_freq", "employer_encouragement"];
 
 var st = JSON.parse(localStorage.getItem(SKEY) || "null");
-if (!st) { st = { step: 1, rid: "TEST-" + tester + "-" + Date.now().toString(36), ed: {} }; saveSt(); }
+if (!st) { st = { step: 0, rid: "TEST-" + tester + "-" + Date.now().toString(36), ed: {} }; saveSt(); }
 function saveSt() { localStorage.setItem(SKEY, JSON.stringify(st)); }
 
 // ?topic=adoption|tasks|job_quality|management plays the role of the Qualtrics Randomizer:
 // it sets the `topic` Embedded Data field before the interview page loads.
 var TOPIC_NAMES = { adoption: "Adoption", tasks: "Tasks", job_quality: "Job quality", management: "Management and co-workers" };
 var topicParam = (params.get("topic") || "").toLowerCase();
-if (TOPIC_NAMES[topicParam]) { st.ed.topic = topicParam; saveSt(); }
-document.getElementById("ttopic").textContent = TOPIC_NAMES[st.ed.topic] || "drawn at random";
+if (TOPIC_NAMES[topicParam] && !st.ed.topic) { st.ed.topic = topicParam; st.ed.topic_choice = "link"; saveSt(); }
+if (st.step === 0 && st.ed.topic) st.step = 1;   // topic fixed by the link: skip the picker
+function showTopic() { document.getElementById("ttopic").textContent = TOPIC_NAMES[st.ed.topic] || "not chosen yet"; }
+showTopic();
+if (st.who) {                                     // initials entered at step 0, kept across reloads
+  document.getElementById("tcode").textContent = st.who;
+  document.querySelectorAll(".tc").forEach(function (e) { e.textContent = st.who; });
+}
+
+// Step 0 (only when the link does not fix the topic): initials and topic, or a random draw.
+document.getElementById("go0").onclick = function () {
+  var who = document.getElementById("who").value.replace(/[^A-Za-z0-9]/g, "").slice(0, 12);
+  if (!who) { document.getElementById("err0").textContent = "Please enter your initials."; return; }
+  var pick = document.querySelector('input[name="topic"]:checked').value;
+  var keys = Object.keys(TOPIC_NAMES);
+  st.ed.topic = pick === "random" ? keys[Math.floor(Math.random() * keys.length)] : pick;
+  st.ed.topic_choice = pick === "random" ? "random" : "chosen";
+  st.rid = "TEST-" + who + "-" + st.ed.topic + "-" + Date.now().toString(36);
+  document.getElementById("tcode").textContent = who;
+  document.querySelectorAll(".tc").forEach(function (e) { e.textContent = who; });
+  st.who = who; showTopic(); showStep(1);
+};
 
 document.getElementById("restart").onclick = function (e) {
   e.preventDefault();
@@ -95,7 +133,7 @@ document.getElementById("restart").onclick = function (e) {
 
 function showStep(n) {
   st.step = n; saveSt();
-  [1, 2, 3, 4].forEach(function (k) { document.getElementById("step" + k).style.display = k === n ? "block" : "none"; });
+  [0, 1, 2, 3, 4].forEach(function (k) { document.getElementById("step" + k).style.display = k === n ? "block" : "none"; });
   if (n === 3) loadInterview();
   if (n === 4) document.getElementById("convids").textContent = st.ed.el_conversation_ids || st.rid;
   window.scrollTo(0, 0);
