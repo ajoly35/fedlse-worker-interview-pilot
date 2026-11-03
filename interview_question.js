@@ -13,9 +13,9 @@
 //    conversation ("[RESUME]"). Silence is billed at 5% of the minute rate after 10 s, and
 //    no LLM tokens are used while nobody speaks.
 //    Each ElevenLabs session is capped at SESSION_CAP_MS (3,000 s, the agent's maximum
-//    duration), and the paused time counts towards it. So the open-call pause lasts as long
-//    as the session can afford while keeping RESERVE_MS for the rest of the interview:
-//    about 37 minutes if paused at minute 0, 32 minutes if paused at minute 5.
+//    duration), and the paused time counts towards it. So the open-call pause lasts
+//    SOFT_PAUSE_MAX_MS (20 min), or less if the session cannot afford it while keeping
+//    RESERVE_MS for the rest of the interview (only when paused after about minute 17).
 // 2. Hard pause (fallback). If the soft pause outlasts that budget, or the call drops (phone
 //    locked, app switched, network lost), the page ends the session. Resume then starts a new session and passes the
 //    transcript so far to the agent. Each session has its own conversation ID; all are saved,
@@ -30,6 +30,7 @@ Qualtrics.SurveyEngine.addOnload(function () {
   var NEXT_FALLBACK_MS = 60 * 60 * 1000;       // show Next anyway after 60 min on the page
   var SESSION_CAP_MS = 3000 * 1000;            // agent max_duration_seconds = 3000
   var RESERVE_MS = 13 * 60 * 1000;             // kept for the rest of the interview (12 min) + 1 min margin
+  var SOFT_PAUSE_MAX_MS = 20 * 60 * 1000;      // open-call pause never lasts more than 20 min
 
   var q = this;
   q.hideNextButton();
@@ -226,7 +227,7 @@ Qualtrics.SurveyEngine.addOnload(function () {
     softTimer = setTimeout(function () {
       userPaused = true; softPaused = false;
       if (conversation) conversation.endSession();
-    }, Math.max(budget, 0));
+    }, Math.max(Math.min(budget, SOFT_PAUSE_MAX_MS), 0));
   };
 
   // ---------- load the SDK ----------
