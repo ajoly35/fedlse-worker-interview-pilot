@@ -12,8 +12,12 @@
 //    calls skip_turn and stays silent. The call stays open, so Resume continues the SAME
 //    conversation ("[RESUME]"). Silence is billed at 5% of the minute rate after 10 s, and
 //    no LLM tokens are used while nobody speaks.
-// 2. Hard pause (fallback). If the soft pause lasts longer than SOFT_PAUSE_MAX_MS, or the
-//    call drops, the page ends the session. Resume then starts a new session and passes the
+//    Each ElevenLabs session is capped at SESSION_CAP_MS (3,000 s, the agent's maximum
+//    duration), and the paused time counts towards it. So the open-call pause lasts as long
+//    as the session can afford while keeping RESERVE_MS for the rest of the interview:
+//    about 37 minutes if paused at minute 0, 32 minutes if paused at minute 5.
+// 2. Hard pause (fallback). If the soft pause outlasts that budget, or the call drops (phone
+//    locked, app switched, network lost), the page ends the session. Resume then starts a new session and passes the
 //    transcript so far to the agent. Each session has its own conversation ID; all are saved,
 //    in order, in el_conversation_ids. State is also kept in the browser (localStorage), so a
 //    reload of the page resumes the same interview with the same topic order.
@@ -23,8 +27,9 @@ Qualtrics.SurveyEngine.addOnload(function () {
   var SDK_URL = "https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.33.0/dist/lib.iife.js";
   var RESUME_MESSAGE = "Welcome back. Whenever you're ready, just say so and we'll carry on where we left off.";
   var MAX_RESUME_CHARS = 8000;                 // tail of the transcript passed back on resume
-  var NEXT_FALLBACK_MS = 25 * 60 * 1000;       // show Next anyway after 25 min on the page
-  var SOFT_PAUSE_MAX_MS = 15 * 60 * 1000;      // after 15 min paused, hang up (session cap is 30 min)
+  var NEXT_FALLBACK_MS = 60 * 60 * 1000;       // show Next anyway after 60 min on the page
+  var SESSION_CAP_MS = 3000 * 1000;            // agent max_duration_seconds = 3000
+  var RESERVE_MS = 13 * 60 * 1000;             // kept for the rest of the interview (12 min) + 1 min margin
 
   var q = this;
   q.hideNextButton();
@@ -84,7 +89,7 @@ Qualtrics.SurveyEngine.addOnload(function () {
     if (mode === "ready") { $status.textContent = "Ready."; $hint.textContent = "Click Start, allow the microphone, then speak normally."; }
     if (mode === "connecting") { $status.textContent = "Connecting..."; $hint.textContent = ""; }
     if (mode === "live") { $status.textContent = "Interview in progress."; $hint.textContent = "Need to stop for a while? Click Pause. You can resume at any time from this page."; }
-    if (mode === "paused") { $status.textContent = "Interview paused."; $hint.textContent = "Click Resume when you are ready. Your answers so far are kept."; }
+    if (mode === "paused") { $status.textContent = "Interview paused."; $hint.textContent = "Click Resume when you are ready. Your answers so far are kept. Keep this page open and your screen on: locking your phone or switching to another app may end the call. If it does, just click Resume and the interview will carry on."; }
     if (mode === "done") { $status.textContent = "Interview complete. Thank you!"; $hint.textContent = "Please click the Next button to finish the survey."; }
   }
   function warn(html) {
@@ -107,7 +112,23 @@ Qualtrics.SurveyEngine.addOnload(function () {
   }
 
   // ---------- the call ----------
-  var conversation = null, userPaused = false, softPaused = false, softTimer = null;
+  var conversation = null, userPaused = false, softPaused = false, softTimer = null, sessionStart = 0;
+
+  // ---------- keep the screen awake during the call (Screen Wake Lock API) ----------
+  // Stops the phone or laptop from dimming and auto-locking while the call is open, including
+  // during a pause. Supported in Chrome, Edge and Safari 16.4+. It cannot stop a respondent
+  // from pressing the lock button or switching apps; the browser then releases the lock.
+  var wakeLock = null;
+  function keepAwake() {
+    if (!("wakeLock" in navigator) || wakeLock || document.visibilityState !== "visible") return;
+    navigator.wakeLock.request("screen").then(function (l) {
+      wakeLock = l; l.addEventListener("release", function () { wakeLock = null; });
+    }).catch(function () {});
+  }
+  function letSleep() { if (wakeLock) { wakeLock.release().catch(function () {}); wakeLock = null; } }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && conversation) keepAwake();
+  });
 
   function resumeTranscript() {
     if (!state.transcript.length) return "";
@@ -144,14 +165,14 @@ Qualtrics.SurveyEngine.addOnload(function () {
           return "ok";
         }
       },
-      onConnect: function () { setUI("live"); },
+      onConnect: function () { sessionStart = Date.now(); keepAwake(); setUI("live"); },
       onMessage: function (m) {
         if (!m || !m.message || /^\[(PAUSE|RESUME)\]/.test(m.message)) return;
         state.transcript.push({ role: m.source === "ai" ? "agent" : "user", text: m.message });
         save();
       },
       onDisconnect: function () {
-        conversation = null; softPaused = false; clearTimeout(softTimer);
+        conversation = null; softPaused = false; clearTimeout(softTimer); letSleep();
         if (state.completed) return;
         if (!userPaused) {
           // dropped call, network loss or the 30-minute session cap: treat as a pause
@@ -198,10 +219,14 @@ Qualtrics.SurveyEngine.addOnload(function () {
     conversation.setMicMuted(true);
     conversation.setVolume({ volume: 0 });        // nothing is heard even if the agent speaks
     setUI("paused");
-    softTimer = setTimeout(function () {           // long break: hang up to stop billing
+    // Open-call budget: what is left of the 3,000 s session after keeping RESERVE_MS for the
+    // rest of the interview. Past it, hang up before the cap cuts the call mid-question;
+    // Resume then starts a new session with the transcript (no limit on total pause time).
+    var budget = SESSION_CAP_MS - (Date.now() - sessionStart) - RESERVE_MS;
+    softTimer = setTimeout(function () {
       userPaused = true; softPaused = false;
       if (conversation) conversation.endSession();
-    }, SOFT_PAUSE_MAX_MS);
+    }, Math.max(budget, 0));
   };
 
   // ---------- load the SDK ----------
