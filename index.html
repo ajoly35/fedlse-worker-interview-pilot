@@ -13,7 +13,7 @@ input,select{font-size:16px;padding:8px;width:100%;box-sizing:border-box;border:
 #next{display:none}
 </style></head><body>
 <h1>AI and your work: pilot interview</h1>
-<div class="banner">This is a <strong>test version</strong> for the research team. Tester code: <strong id="tcode"></strong>.
+<div class="banner">This is a <strong>test version</strong> for the research team. Tester code: <strong id="tcode"></strong>. Topic: <strong id="ttopic"></strong>.
 The conversation is recorded and transcribed by ElevenLabs. <a href="#" id="restart">Start over</a></div>
 
 <!-- Step 1: questionnaire (mirrors the Qualtrics items) -->
@@ -80,6 +80,13 @@ var FIELDS = ["occupation", "industry", "employer_genai", "ai_use_freq", "employ
 var st = JSON.parse(localStorage.getItem(SKEY) || "null");
 if (!st) { st = { step: 1, rid: "TEST-" + tester + "-" + Date.now().toString(36), ed: {} }; saveSt(); }
 function saveSt() { localStorage.setItem(SKEY, JSON.stringify(st)); }
+
+// ?topic=adoption|tasks|job_quality|management plays the role of the Qualtrics Randomizer:
+// it sets the `topic` Embedded Data field before the interview page loads.
+var TOPIC_NAMES = { adoption: "Adoption", tasks: "Tasks", job_quality: "Job quality", management: "Management and co-workers" };
+var topicParam = (params.get("topic") || "").toLowerCase();
+if (TOPIC_NAMES[topicParam]) { st.ed.topic = topicParam; saveSt(); }
+document.getElementById("ttopic").textContent = TOPIC_NAMES[st.ed.topic] || "drawn at random";
 
 document.getElementById("restart").onclick = function (e) {
   e.preventDefault();

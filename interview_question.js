@@ -1,11 +1,19 @@
-// Qualtrics question JavaScript: FED/LSE AI worker interview, with Pause / Resume (v1, 2026-11-02).
+// Qualtrics question JavaScript: FED/LSE AI worker interview, ONE topic per respondent,
+// with Pause / Resume (v2, 2026-11-03; v1 covered all four topics in a random order).
 // Paste into the "AI interview" question: question gear icon > JavaScript (replace everything).
 //
 // Embedded Data fields to declare in Survey Flow BEFORE the interview block:
 //   set from the questionnaire: occupation, industry, employer_genai, ai_use_freq, employer_encouragement
-//   left empty (set here):      topic_order, ai_user, el_conversation_id, el_conversation_ids,
+//   set by the Randomizer:      topic = adoption | tasks | job_quality | management
+//   left empty (set here):      topic_source, ai_user, el_conversation_id, el_conversation_ids,
 //                               n_sessions, n_pauses, interview_completed
 // Qualtrics silently drops any value set here for a field the flow does not declare.
+//
+// Topic assignment. The Survey Flow Randomizer sets `topic` (1 of 4, evenly presented). This page
+// starts the ElevenLabs agent for that topic: each agent knows only its own topic, so it cannot
+// drift into the others. If `topic` is missing or not one of the four values (for example the
+// Randomizer was left out), the page draws one at random itself, so the interview still runs, and
+// records topic_source = "page" instead of "qualtrics". Check topic_source in the export.
 //
 // How pause works (two levels):
 // 1. Soft pause (default). Pause mutes the microphone and sends "[PAUSE]" to the agent, which
@@ -20,10 +28,15 @@
 //    locked, app switched, network lost), the page ends the session. Resume then starts a new session and passes the
 //    transcript so far to the agent. Each session has its own conversation ID; all are saved,
 //    in order, in el_conversation_ids. State is also kept in the browser (localStorage), so a
-//    reload of the page resumes the same interview with the same topic order.
+//    reload of the page resumes the same interview with the same topic and agent.
 
 Qualtrics.SurveyEngine.addOnload(function () {
-  var AGENT_ID = "agent_0201m6en7en2e9tregqk65xgq18b";
+  var AGENTS = {                               // one ElevenLabs agent per topic
+    adoption: "agent_1901m6h59ec4ehnaq63r26k791cg",
+    tasks: "agent_9101m6h59fr8fwxseh41cc64fg3k",
+    job_quality: "agent_9401m6h59jxqeh29jcf58vt3y1sr",
+    management: "agent_0401m6h59kr0fz89kh5v71xqzp5k"
+  };
   var SDK_URL = "https://cdn.jsdelivr.net/npm/@elevenlabs/client@1.33.0/dist/lib.iife.js";
   var RESUME_MESSAGE = "Welcome back. Whenever you're ready, just say so and we'll carry on where we left off.";
   var MAX_RESUME_CHARS = 8000;                 // tail of the transcript passed back on resume
@@ -41,24 +54,25 @@ Qualtrics.SurveyEngine.addOnload(function () {
   // ---------- state (survives a page reload) ----------
   function load() { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch (e) { return null; } }
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
-  var state = load() || { topicOrder: null, transcript: [], convIds: [], pauses: 0, completed: false };
+  var state = load() || { topic: null, topicSource: null, transcript: [], convIds: [], pauses: 0, completed: false };
 
-  // ---------- randomise the topic order once per respondent ----------
-  if (!state.topicOrder) {
-    var topics = ["Adoption", "Tasks", "Job quality", "Management and co-workers"];
-    for (var i = topics.length - 1; i > 0; i--) {            // Fisher-Yates shuffle
-      var j = Math.floor(Math.random() * (i + 1));
-      var t = topics[i]; topics[i] = topics[j]; topics[j] = t;
+  // ---------- topic: from the Qualtrics Randomizer, fixed once per respondent ----------
+  if (!state.topic || !AGENTS[state.topic]) {
+    var fromQualtrics = String(ED.getEmbeddedData("topic") || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    if (AGENTS[fromQualtrics]) { state.topic = fromQualtrics; state.topicSource = "qualtrics"; }
+    else {                                       // fallback: draw here so the interview still runs
+      var keys = Object.keys(AGENTS);
+      state.topic = keys[Math.floor(Math.random() * keys.length)]; state.topicSource = "page";
     }
-    state.topicOrder = topics;
     save();
   }
-  var topicOrderText = state.topicOrder.map(function (t, k) { return (k + 1) + ". " + t; }).join("; ");
+  var AGENT_ID = AGENTS[state.topic];
 
   var freq = ED.getEmbeddedData("ai_use_freq") || "";
   var aiUser = /never/i.test(freq) ? "no" : "yes";
 
-  ED.setEmbeddedData("topic_order", state.topicOrder.join("|"));
+  ED.setEmbeddedData("topic", state.topic);
+  ED.setEmbeddedData("topic_source", state.topicSource);
   ED.setEmbeddedData("ai_user", aiUser);
 
   // ---------- UI ----------
@@ -154,7 +168,6 @@ Qualtrics.SurveyEngine.addOnload(function () {
         ai_use_freq: freq || "not reported",
         employer_encouragement: ED.getEmbeddedData("employer_encouragement") || "not reported",
         ai_user: aiUser,
-        topic_order: topicOrderText,
         resume_transcript: resumeTranscript(),
         session_number: String(state.convIds.length + 1)
       },
