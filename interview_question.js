@@ -20,9 +20,9 @@
 //    calls skip_turn and stays silent. The call stays open, so Resume continues the SAME
 //    conversation ("[RESUME]"). Silence is billed at 5% of the minute rate after 10 s, and
 //    no LLM tokens are used while nobody speaks.
-//    Each ElevenLabs session is capped at SESSION_CAP_MS (3,000 s, the agent's maximum
+//    Each ElevenLabs session is capped at SESSION_CAP_MS (3,600 s, the agent's maximum
 //    duration), and the paused time counts towards it. So the open-call pause lasts
-//    SOFT_PAUSE_MAX_MS (20 min), or less if the session cannot afford it while keeping
+//    SOFT_PAUSE_MAX_MS (30 min), or less if the session cannot afford it while keeping
 //    RESERVE_MS for the rest of the interview (only when paused after about minute 17).
 // 2. Hard pause (fallback). If the soft pause outlasts that budget, or the call drops (phone
 //    locked, app switched, network lost), the page ends the session. Resume then starts a new session and passes the
@@ -41,9 +41,9 @@ Qualtrics.SurveyEngine.addOnload(function () {
   var RESUME_MESSAGE = "Welcome back. Whenever you're ready, just say so and we'll carry on where we left off.";
   var MAX_RESUME_CHARS = 8000;                 // tail of the transcript passed back on resume
   var NEXT_FALLBACK_MS = 60 * 60 * 1000;       // show Next anyway after 60 min on the page
-  var SESSION_CAP_MS = 3000 * 1000;            // agent max_duration_seconds = 3000
+  var SESSION_CAP_MS = 3600 * 1000;            // agent max_duration_seconds = 3600
   var RESERVE_MS = 13 * 60 * 1000;             // kept for the rest of the interview (12 min) + 1 min margin
-  var SOFT_PAUSE_MAX_MS = 20 * 60 * 1000;      // open-call pause never lasts more than 20 min
+  var SOFT_PAUSE_MAX_MS = 30 * 60 * 1000;      // open-call pause never lasts more than 30 min
 
   var q = this;
   q.hideNextButton();
@@ -233,7 +233,7 @@ Qualtrics.SurveyEngine.addOnload(function () {
     conversation.setMicMuted(true);
     conversation.setVolume({ volume: 0 });        // nothing is heard even if the agent speaks
     setUI("paused");
-    // Open-call budget: what is left of the 3,000 s session after keeping RESERVE_MS for the
+    // Open-call budget: what is left of the 3,600 s session after keeping RESERVE_MS for the
     // rest of the interview. Past it, hang up before the cap cuts the call mid-question;
     // Resume then starts a new session with the transcript (no limit on total pause time).
     var budget = SESSION_CAP_MS - (Date.now() - sessionStart) - RESERVE_MS;
