@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FED/LSE AI worker interview: pilot test</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:720px;margin:32px auto;padding:0 16px;color:#1f2328;line-height:1.5}
+h1{font-size:22px}h2{font-size:18px;margin-top:0}
+.card{border:1px solid #d0d7de;border-radius:10px;padding:20px;margin:16px 0}
+label{display:block;font-weight:600;margin:14px 0 4px}
+input,select{font-size:16px;padding:8px;width:100%;box-sizing:border-box;border:1px solid #d0d7de;border-radius:6px}
+.btn{font-size:16px;padding:10px 22px;border:0;border-radius:8px;background:#0969da;color:#fff;cursor:pointer;margin-top:18px}
+.muted{color:#59636e;font-size:14px}.banner{background:#ddf4ff;border-radius:8px;padding:10px 14px;font-size:14px}
+.err{color:#cf222e;font-size:14px;margin-top:8px}
+#next{display:none}
+</style></head><body>
+<h1>AI and your work: pilot interview</h1>
+<div class="banner">This is a <strong>test version</strong> for the research team. Tester code: <strong id="tcode"></strong>.
+The conversation is recorded and transcribed by ElevenLabs. <a href="#" id="restart">Start over</a></div>
+
+<!-- Step 1: questionnaire (mirrors the Qualtrics items) -->
+<div class="card" id="step1" style="display:none">
+<h2>1. A few questions about you</h2>
+<label for="occupation">What is your current job title?</label><input id="occupation" autocomplete="off">
+<label for="industry">In which industry do you work?</label>
+<select id="industry"><option value="">Select...</option><option>Professional and business services</option><option>Finance and insurance</option>
+<option>Information and communication</option><option>Education</option><option>Health and social care</option><option>Public administration</option>
+<option>Manufacturing</option><option>Retail and wholesale</option><option>Construction</option><option>Transport and logistics</option>
+<option>Hospitality</option><option>Other</option></select>
+<label for="employer_genai">Does your employer use generative AI tools such as ChatGPT, Copilot or Gemini?</label>
+<select id="employer_genai"><option value="">Select...</option><option>Yes</option><option>No</option><option>Don't know</option></select>
+<label for="ai_use_freq">How often do you use generative AI for your work?</label>
+<select id="ai_use_freq"><option value="">Select...</option><option>Every day</option><option>Several times a week</option><option>About once a week</option>
+<option>Less than once a week</option><option>Never</option></select>
+<label for="employer_encouragement">Which best describes your employer's approach to generative AI?</label>
+<select id="employer_encouragement"><option value="">Select...</option><option>Encourages it and provides tools</option><option>Encourages it but provides no tools</option>
+<option>Neither encourages nor discourages it</option><option>Discourages or bans it</option><option>Don't know</option></select>
+<div class="err" id="err1"></div>
+<button class="btn" id="go1">Next</button>
+</div>
+
+<!-- Step 2: how the interview works (same text as the Qualtrics intro page) -->
+<div class="card" id="step2" style="display:none">
+<h2>2. How the interview works</h2>
+<p>On the next page, you will talk with an <strong>AI interviewer</strong> about how AI is, or is not, changing your work.
+It takes about <strong>8 to 10 minutes</strong> and works like a phone call: you answer out loud, in your own words.
+There are no right or wrong answers, and nothing you say is shared with your employer.</p>
+<p><strong>Before you start</strong></p>
+<ul><li>Find a reasonably quiet place, and use a browser such as Chrome, Safari or Edge.</li>
+<li>When asked, <strong>allow the microphone</strong>.</li>
+<li>Turn off ad blockers or privacy extensions for this site; they can stop the interview from loading.</li></ul>
+<p><strong>Need to stop?</strong> Click <strong>Pause</strong> at any time, for example if you are called in to an appointment.
+Your microphone is switched off while paused, and your answers so far are kept. When you are ready, click <strong>Resume</strong>
+on the same page and device: the interviewer will carry on where you left off. For a short break, you can also just say "one moment".</p>
+<p class="muted">The interview is recorded and transcribed for research by the Federal Reserve Bank of St. Louis and the London School of Economics.</p>
+<button class="btn" id="go2">Go to the interview</button>
+</div>
+
+<!-- Step 3: the interview page (the Qualtrics question JavaScript, unchanged) -->
+<div class="card" id="step3" style="display:none">
+<h2>3. The interview</h2>
+<div id="q"></div>
+<button class="btn" id="next">Next</button>
+</div>
+
+<!-- Step 4: done -->
+<div class="card" id="step4" style="display:none">
+<h2>Thank you</h2>
+<p>Please reply to the email with your feedback. It helps if you mention your tester code <strong class="tc"></strong>
+and this reference: <code id="convids"></code></p>
+</div>
+
+<script>
+var params = new URLSearchParams(location.search);
+var tester = (params.get("t") || "X").replace(/[^A-Za-z0-9]/g, "").slice(0, 12) || "X";
+var SKEY = "fedai_tester_" + tester;
+document.getElementById("tcode").textContent = tester;
+document.querySelectorAll(".tc").forEach(function (e) { e.textContent = tester; });
+var FIELDS = ["occupation", "industry", "employer_genai", "ai_use_freq", "employer_encouragement"];
+
+var st = JSON.parse(localStorage.getItem(SKEY) || "null");
+if (!st) { st = { step: 1, rid: "TEST-" + tester + "-" + Date.now().toString(36), ed: {} }; saveSt(); }
+function saveSt() { localStorage.setItem(SKEY, JSON.stringify(st)); }
+
+document.getElementById("restart").onclick = function (e) {
+  e.preventDefault();
+  localStorage.removeItem("fedai_worker_" + st.rid); localStorage.removeItem(SKEY); location.reload();
+};
+
+function showStep(n) {
+  st.step = n; saveSt();
+  [1, 2, 3, 4].forEach(function (k) { document.getElementById("step" + k).style.display = k === n ? "block" : "none"; });
+  if (n === 3) loadInterview();
+  if (n === 4) document.getElementById("convids").textContent = st.ed.el_conversation_ids || st.rid;
+  window.scrollTo(0, 0);
+}
+
+document.getElementById("go1").onclick = function () {
+  var missing = FIELDS.filter(function (f) { return !document.getElementById(f).value.trim(); });
+  if (missing.length) { document.getElementById("err1").textContent = "Please answer all five questions."; return; }
+  FIELDS.forEach(function (f) { st.ed[f] = document.getElementById(f).value.trim(); });
+  showStep(2);
+};
+document.getElementById("go2").onclick = function () { showStep(3); };
+document.getElementById("next").onclick = function () { showStep(4); };
+
+// Minimal stand-in for the Qualtrics page API, so interview_question.js runs exactly as in Qualtrics.
+var loaded = false;
+function loadInterview() {
+  if (loaded) return; loaded = true;
+  var onLoadFns = [], onUnloadFns = [];
+  window.Qualtrics = { SurveyEngine: {
+    addOnload: function (f) { onLoadFns.push(f); }, addOnUnload: function (f) { onUnloadFns.push(f); },
+    getEmbeddedData: function (k) { return st.ed[k]; },
+    setEmbeddedData: function (k, v) { st.ed[k] = v; saveSt(); } } };
+  var qctx = {
+    hideNextButton: function () { document.getElementById("next").style.display = "none"; },
+    showNextButton: function () { document.getElementById("next").style.display = "inline-block"; },
+    getQuestionContainer: function () { return document.getElementById("q"); } };
+  fetch("interview_question.js", { cache: "no-store" }).then(function (r) { return r.text(); }).then(function (src) {
+    src = src.replace("${e://Field/ResponseID}", st.rid);
+    new Function(src)(); onLoadFns.forEach(function (f) { f.call(qctx); });
+  });
+  window.addEventListener("beforeunload", function () { onUnloadFns.forEach(function (f) { f(); }); });
+}
+
+if (st.step > 1) FIELDS.forEach(function (f) { if (st.ed[f]) document.getElementById(f).value = st.ed[f]; });
+showStep(st.step);
+</script>
+</body></html>
